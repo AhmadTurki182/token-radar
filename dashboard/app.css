@@ -109,6 +109,26 @@ tbody tr[data-selected="true"] { background: rgba(52, 211, 153, 0.10); }
 .status { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; white-space: nowrap; }
 .status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .status.live::before { background: var(--blue); }
+.cmp-col { width: 36px; text-align: center; }
+.cmp-col input { accent-color: var(--accent); width: 16px; height: 16px; cursor: pointer; vertical-align: middle; }
+
+body.has-tray .shell { padding-bottom: 260px; }
+.tray {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 15;
+  background: var(--surface); border-top: 1px solid var(--border);
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.45);
+  padding: var(--step-3) var(--step-6) var(--step-4);
+  max-height: 46vh; overflow-y: auto;
+}
+.tray-head { display: flex; align-items: baseline; gap: var(--step-3); flex-wrap: wrap; margin-bottom: var(--step-2); }
+.tray-head .button { margin-left: auto; }
+.tray-name { display: flex; align-items: center; justify-content: space-between; gap: var(--step-2); }
+.tray-name b { font-weight: 600; color: var(--ink); }
+.tray .remove { border: 0; background: none; color: var(--muted); font-size: 18px; line-height: 1; padding: 0 2px; }
+.tray .remove:hover { color: var(--ink); }
+.tray td.best { color: var(--accent); font-weight: 600; }
+.tray th[scope="row"] { color: var(--muted); font-weight: 500; white-space: nowrap; }
+.detail-actions { display: flex; gap: var(--step-2); flex: none; align-items: start; }
 
 .model { margin-top: var(--step-4); padding: var(--step-5); display: grid; gap: var(--step-3); }
 .howto { padding: var(--step-5); display: grid; gap: var(--step-3); }

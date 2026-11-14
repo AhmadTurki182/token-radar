@@ -1,19 +1,23 @@
-// Token Radar's model, radar-2: one sealed snapshot in, one ranked board out.
+// Token Radar's model, radar-3: one sealed snapshot in, one ranked board out.
 //
 // The board covers every slug in the snapshot's watchlist (the floor, never a ceiling) and adds
-// the strongest pre-token protocols below the watchlist floor, chosen by implied value, not by
-// TVL alone: the early rows the radar exists to find. A protocol is pre-token when its index
-// entry records no token at all (no market cap, no CoinGecko id, no symbol); the snapshot's
-// live-token protocols are kept apart and shown at the market's own value, never mixed into
-// the ranked board.
+// every other pre-token protocol the eligibility rule admits, chosen by implied value, not by
+// TVL alone: the early rows the radar exists to find. The watchlist is the floor, not the
+// ceiling, so the early radar also carries the strongest protocols above the floor the list
+// leaves out. A protocol is pre-token when its index entry records no token at all (no market
+// cap, no CoinGecko id, no symbol); the snapshot's live-token protocols are kept apart and
+// shown at the market's own value, never mixed into the ranked board.
 //
 // Implied value follows only from the snapshot's own figures:
 //
 //   multiple(category) = median mcap_usd/tvl_usd over the LIVE protocols of that category,
 //                        each ratio winsorized to the [p10, p90] band of all live ratios;
-//                        the global median when a category has fewer than 3 live peers.
-//                        The multiple is calibrated from the snapshot itself at run time:
-//                        a lending protocol is not priced like a DEX, and no multiple is
+//                        a category with fewer than 3 live peers is priced by shrinkage:
+//                        (n x median + 3 x global) / (n + 3), so one live peer moves the
+//                        multiple a quarter of the way from the global median toward its own
+//                        ratio, two peers two fifths, and no peer leaves it at the global
+//                        median. The multiple is calibrated from the snapshot itself at run
+//                        time: a lending protocol is not priced like a DEX, and no multiple is
 //                        a number this file chose by hand.
 //   base               = tvl_usd x multiple(category)
 //   growth             = clamp(change_7d, -60, 120) per cent
@@ -27,14 +31,22 @@
 // eligibility rule the house used for the watchlist (RULES.txt, "The snapshot") decides
 // which early rows the board may carry: no exchange, no bridge, no liquid-staking or
 // restaking wrapper, no versioned pool, no product named after an exchange, no wrapped or
-// staked product of a token that already trades.
+// staked product of a token that already trades. Two categories are excluded on the same
+// principle, though the house's list does not name them: Cross Chain Bridge is a bridge, and
+// Stablecoin Wrapper wraps a stablecoin that trades. The watchlist itself is carried whole,
+// whatever its categories: it is the floor the gate requires, not a row the model chose.
+// Eligibility is judged on the snapshot's ten fields alone: `parentProtocol` is not one of
+// them, so a deployment the list leaves out is ranked on its own record.
 
 // Calibration check, measured on this snapshot: the multiples the model computes at run
-// time reproduce the hand-checked figures exactly — Basis Trading 0.654 (7 live peers) and
-// Yield Aggregator 0.151 — and zero-market-cap tokens are excluded from calibration, because
-// a live token with mcap 0 carries no pricing signal: leaving one in dragged small
-// categories' medians toward 0 and demoted their pre-token rows. Nothing in this file is
-// tuned to a name: change the snapshot and every multiple moves with it.
+// time reproduce the hand-checked figures exactly — Basis Trading 0.6544 (7 live peers) and
+// Yield Aggregator 0.1510, both with enough peers that shrinkage leaves them alone — and the
+// shrunk figures check too: Risk Curators 0.8992 (1 live peer at 2.9555, the p90 cap:
+// (2.9555 + 3 x 0.2138) / 4) and Onchain Capital Allocator 0.1350 (2 live peers, median
+// 0.0169: (2 x 0.0169 + 3 x 0.2138) / 5). Zero-market-cap tokens are excluded from
+// calibration, because a live token with mcap 0 carries no pricing signal: leaving one in
+// dragged small categories' medians toward 0 and demoted their pre-token rows. Nothing in
+// this file is tuned to a name: change the snapshot and every multiple moves with it.
 
 /** The snapshot's protocol entry: exactly the ten fields the sealed input carries. */
 export interface SnapshotProtocol {
@@ -70,6 +82,8 @@ export interface ModelConstants {
   maturity_days: number;
   unknown_age_days: number;
   min_peers: number;
+  /** Pseudo-observations at the global median in the shrinkage blend for thin categories. */
+  shrinkage_prior: number;
 }
 
 export const MODEL: ModelConstants = {
@@ -82,12 +96,14 @@ export const MODEL: ModelConstants = {
   maturity_days: 1095,
   unknown_age_days: 365,
   min_peers: 3,
+  shrinkage_prior: 3,
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-2';
+export const MODEL_VERSION = 'radar-3';
 
-/** How many pre-token protocols below the watchlist floor the early radar carries, by implied value. */
+/** How many pre-token protocols beyond the watchlist the early radar carries, by implied value:
+ *  the cap, not a target — this snapshot holds 156 beyond the watchlist, so all of them. */
 export const EARLY_ROWS = 160;
 
 /** How many live-token protocols the Live token view carries, by market cap. */
@@ -238,8 +254,11 @@ export interface CategoryMultiples {
  * Calibrate every category's FDV/TVL multiple from the live protocols in the same snapshot:
  * median mcap_usd/tvl_usd per category, each ratio winsorized to the [p10, p90] band of all
  * live ratios so one outlier cannot set a category's price. A category with fewer than
- * `min_peers` live peers falls back to the global median: the model makes no category claim
- * on thin evidence. Nothing here is a hand-picked number.
+ * `min_peers` live peers is priced by shrinkage toward the global median, its own median
+ * weighted by its peer count against `shrinkage_prior` parts global: thin evidence moves the
+ * multiple, it does not replace it, and a category with no live peer at all is not in this
+ * map and falls back to the global median through multipleFor. Nothing here is a hand-picked
+ * number.
  */
 export function categoryMultiples(snapshot: Snapshot, model: ModelConstants = MODEL): CategoryMultiples {
   // A live peer is a protocol whose token records a positive market cap: a zero market cap
@@ -260,7 +279,14 @@ export function categoryMultiples(snapshot: Snapshot, model: ModelConstants = MO
     else grouped.set(key, [clamp((p.mcap_usd as number) / p.tvl_usd)]);
   }
   for (const [key, list] of grouped) {
-    byCategory.set(key, { multiple: list.length >= model.min_peers ? median(list) : global, peers: list.length });
+    // Shrinkage toward the global median: a category with fewer than min_peers live peers is
+    // priced by (n x median + shrinkage_prior x global) / (n + shrinkage_prior), so one peer
+    // moves the multiple a quarter of the way from the global median and two peers two fifths;
+    // a category with enough peers keeps its own median untouched.
+    const n = list.length;
+    const multiple =
+      n >= model.min_peers ? median(list) : (n * median(list) + model.shrinkage_prior * global) / (n + model.shrinkage_prior);
+    byCategory.set(key, { multiple, peers: n });
   }
   return { byCategory, global, p10, p90 };
 }
@@ -301,8 +327,20 @@ const EXCHANGE_PREFIX = /^(binance|coinbase|bybit|kraken|bitget|okx|bitfinex|gem
 /** A whole word wrapped, staked or staking: a wrapped or staked product of a token that trades. */
 const WRAPPED_WORD = /\b(wrapped|staked|staking)\b/i;
 
-/** Categories the watchlist rule keeps off the board: bridges and staking wrappers. */
-const EXCLUDED_CATEGORIES = new Set(['Bridge', 'Canonical Bridge', 'Liquid Staking', 'Liquid Restaking', 'Restaked BTC', 'CEX']);
+/** Categories the watchlist rule keeps off the board: bridges and staking wrappers — plus two
+ *  the house's list does not name but its principle covers: Cross Chain Bridge is a bridge, and
+ *  Stablecoin Wrapper wraps a stablecoin that trades. This governs the early rows only: the
+ *  watchlist is carried whole, whatever its categories. */
+const EXCLUDED_CATEGORIES = new Set([
+  'Bridge',
+  'Canonical Bridge',
+  'Cross Chain Bridge',
+  'Liquid Staking',
+  'Liquid Restaking',
+  'Restaked BTC',
+  'Stablecoin Wrapper',
+  'CEX',
+]);
 
 /** Whether a protocol records no token at all. All three fields must be null: a protocol with a
  *  market cap of null but a symbol on record (Ethena USDe, Morpho Blue, Uniswap V4, Aave V3)
@@ -312,7 +350,8 @@ export function isPreToken(p: SnapshotProtocol): boolean {
 }
 
 /** Whether a protocol is one the board may rank: pre-token, and passing the watchlist rule
- *  (no exchange, no bridge, no staking wrapper, no versioned pool, no exchange-named product). */
+ *  (no exchange, no bridge, no cross-chain bridge, no staking wrapper, no stablecoin wrapper,
+ *  no versioned pool, no exchange-named product). */
 export function isRankable(p: SnapshotProtocol): boolean {
   return (
     isPreToken(p) &&
@@ -347,10 +386,12 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
     const p = index.get(slug);
     if (p !== undefined) chosen.set(slug, p);
   }
-  // The early radar: rankable pre-token protocols below the watchlist floor, chosen by implied
-  // value, not by TVL alone, so a fast-growing smaller protocol can outrank a flat giant.
+  // The early radar: every rankable pre-token protocol the watchlist leaves out, chosen by
+  // implied value, not by TVL alone, so a fast-growing smaller protocol can outrank a flat
+  // giant. The watchlist is the floor, never the ceiling: a protocol above the floor the list
+  // leaves out is no worse a subject than one below it.
   const early = snapshot.protocols
-    .filter((p) => !chosen.has(p.slug) && isRankable(p) && p.tvl_usd < snapshot.floor_usd)
+    .filter((p) => !chosen.has(p.slug) && isRankable(p))
     .map((p) => ({ p, score: impliedValue(p, snapshot.as_of, model, multiples).implied }))
     .sort((a, b) => b.score - a.score || (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0))
     .slice(0, EARLY_ROWS)
