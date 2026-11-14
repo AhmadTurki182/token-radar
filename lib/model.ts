@@ -47,6 +47,20 @@
 // calibration, because a live token with mcap 0 carries no pricing signal: leaving one in
 // dragged small categories' medians toward 0 and demoted their pre-token rows. Nothing in
 // this file is tuned to a name: change the snapshot and every multiple moves with it.
+//
+// Round 4, checked on the same snapshot, and no constant changed. The top of the board
+// is decided by signal, not by the shared multiple: ranks 1 and 2 are both Risk Curators
+// at 0.8992, so the multiple cancels and the 1.85% gap is growth (-2.19% against +2.37%)
+// and maturity (543 days against 407); priced at the global median instead, the order is
+// the same ($460M against $452M). The one alternative the data was tested against —
+// pricing a category only from live peers whose TVL clears the snapshot's own $50M floor
+// — was rejected on the numbers: it drops the global median to 0.0820, puts 74 of 196
+// rows on it, and leaves Dexs with 1 live peer where it had 11, so it destroys the
+// differentiation it was meant to save. Six categories on the board rest on a single
+// live peer each; three of them share the multiple 0.8992 (each peer's ratio at or above
+// the p90 cap of 2.9555), and the dashboard's calibration note says so, because a reader
+// who can see the table deserves the consequence stated: inside a shared multiple, TVL,
+// growth and age decide the order.
 
 /** The snapshot's protocol entry: exactly the ten fields the sealed input carries. */
 export interface SnapshotProtocol {

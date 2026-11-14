@@ -249,7 +249,7 @@
     return el('section', { class: 'lede' },
       el('div', null,
         el('h1', { text: DATA.watchlist_size + ' watchlist protocols, ranked by implied value' }),
-        el('p', { text: 'The watchlist is the floor: every protocol with at least $' + Math.round(DATA.floor_usd / 1e6) + 'M of TVL and no token on record. The early radar adds ' + DATA.early_size + ' more pre-token protocols the watchlist leaves out, above or below that floor, chosen by implied value. Implied value is a model, not a promise: it says what a launch would be worth if the record stayed as it is.' })
+        el('p', { text: 'The watchlist is the floor: every protocol with at least $' + Math.round(DATA.floor_usd / 1e6) + 'M of TVL and no token on record. The early radar adds ' + DATA.early_size + ' more pre-token protocols the watchlist leaves out, above or below that floor, chosen by implied value. Implied value is a model, not a promise: it estimates what a launch might be worth if the record stayed as it is.' })
       ),
       el('div', { class: 'facts' },
         el('div', { class: 'fact' }, el('span', { text: 'Watchlist covered' }), el('b', { text: DATA.watchlist_size + ' / ' + DATA.watchlist_size })),
@@ -286,7 +286,7 @@
           el('p', { text: 'Age with no token counts: the factor runs from ' + m.maturity_floor.toFixed(1) + ' for a new protocol to ' + (m.maturity_floor + m.maturity_range).toFixed(1) + ' at ' + m.maturity_days + ' days, so a protocol that has run for years without a token scores higher than a fresh one.' })
         )
       ),
-      el('p', { class: 'sub', text: 'Worked example — rank 1, ' + top.name + ': ' + fmtUsd(top.tvl_usd) + ' TVL × ' + fmtMult(top.category_multiple) + ' ' + (top.category || 'Other') + ' multiple × ' + top.growth_multiplier + ' growth × ' + top.maturity_multiplier + ' maturity ≈ ' + fmtUsd(top.implied_value_usd) + ' (figures rounded for display; the detail view recomputes the exact number).' })
+      el('p', { class: 'sub', text: 'Worked example — rank 1, ' + top.name + ': ' + fmtUsd(top.tvl_usd) + ' TVL × ' + fmtMult(top.category_multiple) + ' ' + (top.category || 'Other') + ' multiple × ' + top.growth_multiplier + ' growth × ' + top.maturity_multiplier + ' maturity ≈ ' + fmtUsd(top.implied_value_usd) + ' (figures rounded for display; the detail view recomputes the exact number and names the live peers behind the multiple).' })
     );
   }
 
@@ -418,6 +418,38 @@
     );
   }
 
+  // What the calibration table itself says about thin evidence, computed from the table
+  // the page shows, never typed in by hand: the categories that rest on one live peer
+  // each, whether they share a multiple, and the categories with no live peer at all.
+  // Inside a shared multiple the multiple is a common factor, so it cannot separate the
+  // rows: TVL, growth and age decide their order, and the note says so instead of letting
+  // the repeated number look like a second, hidden model.
+  function calibrationNote() {
+    var calib = DATA.calibration || [];
+    var single = calib.filter(function (c) { return c.peers === 1; });
+    var none = calib.filter(function (c) { return c.peers === 0; });
+    var parts = [];
+    if (single.length > 0) {
+      // Group the single-peer categories by their multiple: the largest group that
+      // shares one is the one whose rows the multiple cannot separate.
+      var groups = {};
+      single.forEach(function (c) { (groups[c.multiple] = groups[c.multiple] || []).push(c); });
+      var shared = Object.keys(groups).map(function (k) { return groups[k]; }).sort(function (a, b) { return b.length - a.length; })[0];
+      var text = single.length + (single.length === 1 ? ' category rests' : ' categories rest') + ' on a single live peer each';
+      if (shared.length > 1) {
+        text += '; ' + shared.length + ' of them share the multiple ' + fmtMult(shared[0].multiple) + ', so their rows are ordered by TVL, growth and age alone — the multiple does not separate them';
+      } else {
+        text += '; inside each one the multiple is a common factor, so TVL, growth and age decide the order';
+      }
+      parts.push(text);
+    }
+    if (none.length > 0) {
+      parts.push(none.length + (none.length === 1 ? ' category has' : ' categories have') + ' no live peer at all and are priced at the global median');
+    }
+    if (parts.length === 0) return '';
+    return ' ' + parts.join('; ') + '.';
+  }
+
   function modelPanel() {
     var m = DATA.model;
     var calibRows = (DATA.calibration || []).map(function (c) {
@@ -439,7 +471,7 @@
         el('table', { class: 'calib' },
           el('thead', null, el('tr', null, el('th', { scope: 'col', text: 'Category' }), el('th', { scope: 'col', text: 'Multiple' }), el('th', { scope: 'col', text: 'Live peers' }))),
           el('tbody', null, calibRows),
-          el('caption', { class: 'sub', text: 'Each multiple is the median mcap/TVL of its category\u2019s live protocols, winsorized to the [p10, p90] band of all live ratios. A category with fewer than ' + m.min_peers + ' live peers is priced by shrinkage toward the global median, ' + fmtMult(DATA.global_multiple) + ': its own peers count for their number, the global median for ' + m.shrinkage_prior + ' parts.' })
+          el('caption', { class: 'sub', text: 'Each multiple is the median mcap/TVL of its category\u2019s live protocols, winsorized to the [p10, p90] band of all live ratios. A category with fewer than ' + m.min_peers + ' live peers is priced by shrinkage toward the global median, ' + fmtMult(DATA.global_multiple) + ': its own peers count for their number, the global median for ' + m.shrinkage_prior + ' parts.' + calibrationNote() })
         )
       )
     );
